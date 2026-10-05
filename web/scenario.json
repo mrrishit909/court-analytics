@@ -1,0 +1,136 @@
+{
+ "service": "court-analytics",
+ "run": "demo-1",
+ "tokens": {
+  "admin": "firm-admin-demo",
+  "partner": "firm-partner-demo",
+  "associate": "firm-associate-demo"
+ },
+ "steps": [
+  {
+   "title": "Ingest ten years of dockets",
+   "say": "An invented court system: four districts, 36 judges, 9,000 civil cases with their motions, rulings and the citations in each order. The outcome model learns from rulings before 2023 and is scored on the two years after.",
+   "calls": [
+    {
+     "key": "ing",
+     "as": "admin",
+     "method": "POST",
+     "path": "/v1/dockets/ingest",
+     "body": {
+      "source": "demo-dockets"
+     }
+    }
+   ]
+  },
+  {
+   "title": "Search the record",
+   "say": "Full-text search over the facts of every case, with filters. Here: employment cases about retaliation after a safety report.",
+   "calls": [
+    {
+     "key": "search",
+     "as": "associate",
+     "method": "GET",
+     "path": "/v1/cases/search?q=reporting+safety+violations+terminated&nature_of_suit=employment&limit=5"
+    }
+   ]
+  },
+  {
+   "title": "Upload a motion and its facts",
+   "say": "A motion to dismiss in a retaliation case. The system finds the cases with the most similar facts, checks how the four cases the brief cites have been treated since, pulls the judge's record, and writes a memo in which every sentence points at its sources.",
+   "calls": [
+    {
+     "key": "brief",
+     "as": "associate",
+     "method": "POST",
+     "path": "/v1/briefs/analyze",
+     "body": {
+      "motion_type": "dismiss",
+      "judge_id": "bf5fe3a1-2c0c-500c-9a68-2afaa774e827",
+      "nature_of_suit": "employment",
+      "pro_se": false,
+      "amended": 1,
+      "claims": 3,
+      "large_firm_defence": true,
+      "facts": "Plaintiff alleges she was dismissed three weeks after reporting unsafe equipment to a regulator. She reported the hazard in writing. Supervisors allegedly referred to the safety report when announcing the termination. Plaintiff attaches correspondence supporting each allegation. Plaintiff seeks back pay and reinstatement.",
+      "cited_dockets": [
+       "15-cv-01606",
+       "20-cv-05675",
+       "20-cv-06328",
+       "99-cv-00000"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "title": "The judge's record, with honest error bars",
+   "say": "Grant rates are pulled towards a typical judge in proportion to how few rulings there are, and shown with a range. Time to resolution counts cases still open, which a simple median of closed cases gets wrong.",
+   "calls": [
+    {
+     "key": "judge",
+     "as": "associate",
+     "method": "GET",
+     "path": "/v1/judges/bf5fe3a1-2c0c-500c-9a68-2afaa774e827/analytics"
+    }
+   ]
+  },
+  {
+   "title": "The cited case that was overruled",
+   "say": "One of the brief's authorities has been overruled. The precedent graph shows which later orders said so, in their words.",
+   "calls": [
+    {
+     "key": "graph",
+     "as": "associate",
+     "method": "GET",
+     "path": "/v1/precedent/graph?case_id={{brief.cited_cases.2.case_id}}&limit=12"
+    }
+   ]
+  },
+  {
+   "title": "A judge with almost no record",
+   "say": "The same motion before a judge appointed last year. The system does not pretend to know: the estimate falls back towards the court average, the range widens, and it says so.",
+   "calls": [
+    {
+     "key": "thin",
+     "as": "associate",
+     "method": "POST",
+     "path": "/v1/motions/estimate",
+     "body": {
+      "motion_type": "dismiss",
+      "judge_id": "7ae23def-acd1-5d09-9a31-f63879338097",
+      "nature_of_suit": "employment",
+      "pro_se": false,
+      "amended": 1,
+      "claims": 3,
+      "large_firm_defence": true,
+      "facts": "Plaintiff alleges she was dismissed three weeks after reporting unsafe equipment to a regulator. She reported the hazard in writing. Supervisors allegedly referred to the safety report when announcing the termination. Plaintiff attaches correspondence supporting each allegation. Plaintiff seeks back pay and reinstatement."
+     }
+    },
+    {
+     "key": "newjudge",
+     "as": "associate",
+     "method": "GET",
+     "path": "/v1/judges/7ae23def-acd1-5d09-9a31-f63879338097/analytics"
+    }
+   ]
+  },
+  {
+   "title": "How good is the model, really?",
+   "say": "Its results on two years of rulings it never saw, beside two simpler rules, and whether a stated 70% actually came true 70% of the time. Then the audit trail, which records that a brief was analysed but never what it said.",
+   "calls": [
+    {
+     "key": "card",
+     "as": "partner",
+     "method": "GET",
+     "path": "/v1/models/motion-outcome"
+    },
+    {
+     "key": "audit",
+     "as": "partner",
+     "method": "GET",
+     "path": "/v1/audit?limit=8"
+    }
+   ]
+  }
+ ]
+}

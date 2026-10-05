@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Court Case &amp; Judicial Analytics</title>
+<link rel="stylesheet" href="kit.css">
+<style>.big { font-size:17px; margin:0 0 12px; } ol.memo { margin:0; padding-left:20px; } ol.memo li { margin-bottom:8px; }
+.range { position:relative; height:16px; background:#222228; border-radius:8px; min-width:160px; } .range i { position:absolute; top:0; bottom:0; background:var(--accent); opacity:.45; border-radius:8px; }
+.range b { position:absolute; top:-2px; width:3px; height:20px; background:var(--text); border-radius:2px; } .range u { position:absolute; top:-2px; width:1px; height:20px; background:var(--warn); }</style>
+</head>
+<body>
+<header class="top">
+  <h1>Court Case &amp; Judicial Analytics</h1>
+  <span class="sub">An invented court system: 36 judges, 9,000 cases. What does the record say about a motion, and how sure can anyone be?</span>
+  <span class="mode">…</span>
+  <button class="primary" id="runall">Run all steps</button>
+</header>
+<main>
+  <nav class="steps"></nav>
+  <div><div id="steps"></div></div>
+</main>
+<footer>No court, judge, party or case here is real: every name is invented and every ruling is drawn from a simulation. Figures are summaries of past rulings with a range, not legal advice and not a prediction of any decision.</footer>
+<script src="kit.js"></script>
+<script>
+const MOTION = { dismiss: 'Motion to dismiss', summary_judgment: 'Summary judgment', compel: 'Motion to compel', preliminary_injunction: 'Preliminary injunction' };
+const range = (lo, p, hi, ref) => `<div class="range"><i style="left:${100 * lo}%;width:${100 * (hi - lo)}%"></i><b style="left:calc(${100 * p}% - 1px)"></b>${ref == null ? '' : `<u style="left:${100 * ref}%"></u>`}</div>`;
+const tone = s => ({ good: 'good', caution: 'warn', overruled: 'bad', 'not found': '', 'never cited': '' }[s]);
+const treat = t => badge(t, { followed: 'good', distinguished: 'warn', criticized: 'warn', overruled: 'bad' }[t]);
+const est = e => `<div class="grid2"><div>${kpis([{ label: 'Estimated chance granted', value: fmt.pct(e.probability) }, { label: 'Range', value: fmt.pct(e.low) + ' to ' + fmt.pct(e.high) }, { label: 'All such motions', value: fmt.pct(e.base_rate_for_this_motion), sub: 'base rate' }])}
+    ${range(e.low, e.probability, e.high, e.base_rate_for_this_motion)}<div class="small mute" style="margin-top:6px">White bar: the estimate. Blue: its range. Amber line: the base rate. ${esc(e.interval)}</div>
+    ${e.flags.map(f => `<div class="card" style="border-color:var(--warn);margin-top:10px">${badge('warning', 'warn')} ${esc(f[0].toUpperCase() + f.slice(1))}.</div>`).join('')}</div>
+  <div>${table([{ k: 'factor', label: 'What moved the estimate' }, { k: 'direction', label: '', f: v => badge(v, v.includes('granted') ? 'info' : '') }, { k: 'effect_log_odds', label: 'Log-odds', num: 1, f: v => (v > 0 ? '+' : '') + fmt.n(v, 2) }], e.drivers)}</div></div>`;
+const record = rows => table([{ k: 'name', label: 'Motion' }, { k: 'rulings', label: 'Rulings', num: 1 }, { k: 'raw_rate', label: 'Granted (raw)', num: 1, f: v => v == null ? '–' : fmt.pct(v) }, { k: 'rate', label: 'Estimate', num: 1, f: v => fmt.pct(v) },
+  { k: 'low', label: '90% range, amber = typical judge', f: (v, r) => range(r.low, r.rate, r.high, r.typical_judge) }, { k: 'median_days_to_ruling', label: 'Days to rule', num: 1, f: v => v == null ? '–' : fmt.n(v) }], rows);
+const R = {
+  ing: j => { const s = j.result, m = s.outcome_model, t = s.citation_treatment; return kpis([{ label: 'Cases', value: fmt.n(s.cases), sub: s.filed[0].slice(0, 4) + ' to ' + s.filed[1].slice(0, 4) + ', ' + fmt.n(s.open_cases) + ' still open' }, { label: 'Judges', value: s.judges, sub: s.courts + ' districts' },
+      { label: 'Rulings on motions', value: fmt.n(s.motions) }, { label: 'Citations read', value: fmt.n(s.citations) }, { label: 'Model learnt from', value: fmt.n(m.trained_on), sub: 'rulings to ' + m.trained_through }, { label: 'Scored on', value: fmt.n(m.held_out), sub: 'later rulings it never saw' }])
+    + card('How later orders treated the cases they cited', barChart(['followed', 'distinguished', 'criticized', 'overruled'].map((k, i) => ({ label: k[0].toUpperCase() + k.slice(1), value: t[k], color: PALETTE[[1, 2, 4, 3][i]] })))); },
+  search: s => card(`${s.matches} cases match`, table([{ k: 'docket_number', label: 'Docket', f: v => `<span class="mono">${esc(v)}</span>` }, { k: 'court', label: 'Court' }, { k: 'judge', label: 'Judge' }, { k: 'filed_at', label: 'Filed' },
+    { k: 'facts', label: 'Facts', f: v => `<span class="small">${esc(v.slice(0, 110))}…</span>` }], s.items)),
+  brief: b => card(`${b.motion} before ${b.judge.name} (${b.judge.court})`, est(b.estimate))
+    + `<div class="grid2">${card('The cases this brief cites, as treated since', table([{ k: 'docket', label: 'Cited case', f: v => `<span class="mono">${esc(v)}</span>` }, { k: 'status', label: 'Status', f: v => badge(v, tone(v)) },
+        { k: 'followed', label: 'Followed', num: 1, f: v => v ?? '–' }, { k: 'distinguished', label: 'Disting.', num: 1, f: v => v ?? '–' }, { k: 'overruled', label: 'Overruled', num: 1, f: v => v ? `<span style="color:var(--bad)">${v}</span>` : v ?? '–' }], b.cited_cases)
+        + b.cited_cases.filter(k => k.status === 'overruled').map(k => `<blockquote class="small">${esc(k.latest)}</blockquote>`).join(''))}
+      ${card(`Most similar cases · ${b.similar_rulings.granted} of ${b.similar_rulings.with_this_motion} such motions granted`, table([{ k: 'docket_number', label: 'Docket', f: v => `<span class="mono">${esc(v)}</span>` }, { k: 'court', label: 'Court' },
+        { k: 'similarity', label: 'Similarity', num: 1, f: v => fmt.n(v, 2) }, { k: 'this_motion', label: 'This motion', f: v => v ? badge(v, v === 'granted' ? 'info' : '') : '<span class="mute">not filed</span>' }], b.similar_cases))}</div>`
+    + card('Research memo: every sentence lists its sources', `<ol class="memo">${b.memo.map(s => `<li>${esc(s.text)} <span class="badge info">${s.sources.length} source${s.sources.length > 1 ? 's' : ''}: ${esc([...new Set(s.sources.map(x => x.type))].join(', '))}</span></li>`).join('')}</ol>`
+      + (b.unsourced_statements.length ? `<div class="small mute" style="margin-top:8px">Kept out of the memo because nothing on record supports it: "${esc(b.unsourced_statements.join(' '))}"</div>` : '')),
+  judge: j => { const t = j.time_to_resolution; return card(`${j.judge.name} · ${j.judge.court}`, record(j.motions) + `<div class="small mute" style="margin-top:8px">${esc(j.note)}</div>`)
+    + card('Time from filing to closing', table([{ k: 'who', label: '' }, { k: 'cases', label: 'Cases', num: 1 }, { k: 'still_open', label: 'Still open', num: 1 }, { k: 'quarter_closed_by', label: '25% closed by', num: 1, f: v => fmt.n(v) + ' d' },
+        { k: 'median_days', label: 'Half closed by', num: 1, f: v => `<b>${fmt.n(v)} d</b>` }, { k: 'three_quarters_closed_by', label: '75% closed by', num: 1, f: v => v == null ? 'not yet seen' : fmt.n(v) + ' d' }], [{ who: 'This judge', ...t.this_judge }, { who: 'Whole court', ...t.court }])
+      + `<div class="small mute" style="margin-top:8px">${esc(t.method)}.</div>`); },
+  graph: g => card(`${g.case.docket_number} (${g.case.court}) · ${g.status}`, kpis(Object.entries(g.treated_since).map(([k, v]) => ({ label: k[0].toUpperCase() + k.slice(1), value: k === 'overruled' && v ? `<span style="color:var(--bad)">${v}</span>` : v })))
+    + table([{ k: 'at', label: 'When', f: fmt.date }, { k: 'docket_number', label: 'Later order in', f: v => `<span class="mono">${esc(v)}</span>` }, { k: 'treatment', label: 'Treatment', f: treat }, { k: 'context', label: 'In the court\'s words', f: v => `"${esc(v)}"` }], g.cited_by)),
+  thin: e => card('The same motion, before a judge appointed last year', est(e)),
+  newjudge: j => card(`${j.judge.name}: the whole record`, record(j.motions)),
+  card: m => kpis([{ label: 'Ranking quality (AUC)', value: fmt.n(m.model.auc, 3), sub: 'judge rate alone: ' + fmt.n(m.judge_rate_only.auc, 3) + ' · motion base rate: ' + fmt.n(m.motion_base_rate.auc, 3) },
+      { label: 'Error (Brier, lower is better)', value: fmt.n(m.model.brier, 4), sub: 'judge rate ' + fmt.n(m.judge_rate_only.brier, 4) + ' · base rate ' + fmt.n(m.motion_base_rate.brier, 4) }, { label: 'Calibration error', value: fmt.pct(m.model.calibration_error, 1), sub: 'gap between stated and observed' }])
+    + `<div class="grid2">${card(`When it said X%, how often was the motion granted? (${fmt.n(m.held_out)} unseen rulings)`, table([{ k: 'range', label: 'Estimate' }, { k: 'n', label: 'Motions', num: 1 }, { k: 'predicted', label: 'Said', num: 1, f: v => fmt.pct(v, 1) }, { k: 'observed', label: 'Happened', num: 1, f: v => fmt.pct(v, 1) }], m.calibration))}
+       ${card('What the model weighs', barChart(m.coefficients.filter(x => !x.factor.includes(': ')).map(x => ({ label: x.factor, value: Math.abs(x.log_odds), color: x.log_odds > 0 ? PALETTE[0] : PALETTE[2], note: x.log_odds > 0 ? 'towards granted' : 'towards denied' })), { fmt: v => fmt.n(v, 2) }))}</div>
+       <div class="small mute" style="margin:-4px 0 12px">${esc(m.caveat)} In simulation the stated range held the true probability only about 40% of the time: the range covers what the model is unsure of, not what it cannot see.</div>`,
+  audit: a => card(`Audit log · hash chain ${a.chain_valid ? 'verifies' : 'BROKEN'}`, table([{ k: 'at', label: 'When', f: fmt.time }, { k: 'action', label: 'Action', f: v => `<span class="mono">${esc(v)}</span>` },
+    { k: 'detail', label: 'Detail', f: d => `<span class="small">${esc(Object.entries(d).filter(([, v]) => typeof v !== 'object').map(([k, v]) => `${k}: ${v}`).join(' · ').slice(0, 130))}</span>` }], a.events.slice().reverse())),
+};
+const demo = new Demo(R); demo.init();
+</script>
+</body>
+</html>
